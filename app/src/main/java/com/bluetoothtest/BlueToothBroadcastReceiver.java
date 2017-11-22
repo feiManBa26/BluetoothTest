@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.util.Log;
 import android.view.View;
 import android.widget.ListView;
 import android.widget.SimpleAdapter;
@@ -32,6 +33,11 @@ public final class BlueToothBroadcastReceiver extends BroadcastReceiver {
      * 发现的设备列表
      */
     private ListView mDevicesLv;
+    private SimpleAdapter mSimpleAdapter;
+
+    public SimpleAdapter getSimpleAdapter() {
+        return mSimpleAdapter;
+    }
 
     public BlueToothBroadcastReceiver(ListView devicesLv) {
         mDevicesLv = devicesLv;
@@ -41,7 +47,7 @@ public final class BlueToothBroadcastReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
         if (BluetoothDevice.ACTION_FOUND.equals(action)) {
-            Toast.makeText(BaseApplication.getContext(), "Showing Devices",Toast.LENGTH_SHORT).show();
+            Toast.makeText(BaseApplication.getContext(), "Showing Devices", Toast.LENGTH_SHORT).show();
             // 从Intent中获取设备对象
             BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
             // 定义一个装载蓝牙设备名字和地址的Map
@@ -58,6 +64,19 @@ public final class BlueToothBroadcastReceiver extends BroadcastReceiver {
             showDevices();
         } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
             //已搜素完成
+        } else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+            BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+            switch (device.getBondState()) {
+                case BluetoothDevice.BOND_NONE:
+                    Log.e(getPackageName(), "取消配对");
+                    break;
+                case BluetoothDevice.BOND_BONDING:
+                    Log.e(getPackageName(), "配对中");
+                    break;
+                case BluetoothDevice.BOND_BONDED:
+                    Log.e(getPackageName(), "配对成功");
+                    break;
+            }
         }
     }
 
@@ -81,10 +100,14 @@ public final class BlueToothBroadcastReceiver extends BroadcastReceiver {
      * 显示搜索到的设备列表
      */
     private void showDevices() {
-        SimpleAdapter mSimpleAdapter = new SimpleAdapter(BaseApplication.getContext(), devices,
+        mSimpleAdapter = new SimpleAdapter(BaseApplication.getContext(), devices,
                 android.R.layout.simple_list_item_2,
                 new String[]{"name", "address"},
                 new int[]{android.R.id.text1, android.R.id.text2});
         mDevicesLv.setAdapter(mSimpleAdapter);
+    }
+
+    public String getPackageName() {
+        return BlueToothBroadcastReceiver.class.getName();
     }
 }

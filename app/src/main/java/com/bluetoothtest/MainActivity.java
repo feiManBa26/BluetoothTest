@@ -19,9 +19,8 @@ import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.Toast;
 
-import java.io.IOException;
 import java.io.OutputStream;
-import java.util.Map;
+import java.lang.reflect.Method;
 import java.util.Set;
 import java.util.UUID;
 
@@ -49,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(mReceiver, filter);// 注册蓝牙搜索广播接收者，接收并处理搜索结果
 
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
         if (mBluetoothAdapter == null) {
             Toast.makeText(this, "当前设备不支持蓝牙", Toast.LENGTH_SHORT).show();
         } else {
@@ -59,15 +59,18 @@ public class MainActivity extends AppCompatActivity {
                 //静态开启蓝牙功能
                 requestBluetoothPermission();
             } else {
-//                Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-//                // If there are paired devices
-//                if (pairedDevices.size() > 0) {
-//                    // Loop through paired devices
-//                    for (BluetoothDevice device : pairedDevices) {
-//                        // Add the name and address to an array adapter to show in a ListView
-//                        Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
-//                    }
-//                }
+                //搜索蓝牙设备列表
+
+                //打印当前搜索到的蓝牙设备列表
+                Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
+                // If there are paired devices
+                if (pairedDevices.size() > 0) {
+                    // Loop through paired devices
+                    for (BluetoothDevice device : pairedDevices) {
+                        // Add the name and address to an array adapter to show in a ListView
+                        Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
+                    }
+                }
             }
         }
 
@@ -84,35 +87,55 @@ public class MainActivity extends AppCompatActivity {
             mListItem.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                 @Override
                 public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                    Map<String, String> s = (Map<String, String>) parent.getItemAtPosition(position);
-                    String address = s.get("address");//把地址解析出来
-                    try {
-                        //主动连接蓝牙服务端
-                        if (mBluetoothAdapter.isDiscovering()) {
-                            mBluetoothAdapter.cancelDiscovery();
-                            if (mDevice == null) {
-                                mDevice = mBluetoothAdapter.getRemoteDevice(address);
-                            }
-                            if (mBluetoothSocket == null) {
-                                //创建客户端蓝牙Socket
-                                try {
-                                    mBluetoothSocket = mDevice.createRfcommSocketToServiceRecord(MY_UUID);
-                                    if (mBluetoothSocket != null) {
-                                        //开始连接蓝牙，如果没有配对则弹出对话框提示我们进行配对
-                                        mBluetoothSocket.connect();
-                                        if (mBluetoothSocket.isConnected()) {
-                                            //获得输出流（客户端指向服务端输出文本）
-                                            mOutputStream = mBluetoothSocket.getOutputStream();
-                                        }
-                                    }
-                                } catch (IOException e) {
-                                    e.printStackTrace();
+//                    Map<String, String> s = (Map<String, String>) parent.getItemAtPosition(position);
+//                    String address = s.get("address");//把地址解析出来
+//                    try {
+//                        //主动连接蓝牙服务端
+//                        if (mBluetoothAdapter.isDiscovering()) {
+//                            mBluetoothAdapter.cancelDiscovery();
+//                        }
+//
+//                        if (mDevice == null) {
+//                            mDevice = mBluetoothAdapter.getRemoteDevice(address);
+//                        }
+//
+//                        if (mBluetoothSocket == null) {
+//                            //创建客户端蓝牙Socket
+//                            try {
+//                                mBluetoothSocket = mDevice.createRfcommSocketToServiceRecord(MY_UUID);
+//                                if (mBluetoothSocket != null) {
+//                                    //开始连接蓝牙，如果没有配对则弹出对话框提示我们进行配对
+//                                    mBluetoothSocket.connect();
+//                                    if (mBluetoothSocket.isConnected()) {
+//                                        //获得输出流（客户端指向服务端输出文本）
+//                                        mOutputStream = mBluetoothSocket.getOutputStream();
+//                                    }
+//                                }
+//                            } catch (IOException e) {
+//                                e.printStackTrace();
+//                            }
+//                        }
+//                        mOutputStream.write("信息来啦".getBytes("UTF-8"));
+//                    } catch (Exception e) {
+//                        e.printStackTrace();
+//                    }
+                    //蓝牙配对
+                    if (mReceiver != null && mReceiver.getSimpleAdapter() != null) {
+                        BluetoothDevice device = (BluetoothDevice) mReceiver.getSimpleAdapter().getItem(position);
+                        //是否配对
+                        if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
+//                            connect(device);
+                        }else{
+                            try {
+                                Method boned=device.getClass().getMethod("createBond");
+                                boolean isok= (boolean) boned.invoke(device);
+                                if(isok) {
+//                                    connect(device);
                                 }
+                            } catch (Exception e) {
+                                e.printStackTrace();
                             }
                         }
-                        mOutputStream.write("信息来啦".getBytes("UTF-8"));
-                    } catch (Exception e) {
-                        e.printStackTrace();
                     }
                 }
             });
@@ -121,28 +144,33 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void onShow(View view) {
-        if (mBluetoothAdapter.isEnabled()) {
-            // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
-            while (!mBluetoothAdapter.startDiscovery()) {
-                Log.e(TAG, "尝试失败");
-//                try {
-//                    Thread.sleep(100);
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                }
-            }
-        } else {
-            mBluetoothAdapter.enable(); //开启
-            mBluetoothAdapter.cancelDiscovery();
-            // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
-            while (!mBluetoothAdapter.startDiscovery()) {
-                Log.e(TAG, "尝试失败");
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+        if (mBluetoothAdapter != null) {
+            if (mBluetoothAdapter.isEnabled()) {
+                // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
+                while (!mBluetoothAdapter.startDiscovery()) {
+                    Log.e(TAG, "尝试失败");
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            } else {
+
+                mBluetoothAdapter.enable(); //开启
+                mBluetoothAdapter.cancelDiscovery();
+                // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
+                while (!mBluetoothAdapter.startDiscovery()) {
+                    Log.e(TAG, "尝试失败");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
                 }
             }
+        } else {
+            Toast.makeText(this, "当前设备不支持蓝牙", Toast.LENGTH_SHORT).show();
         }
     }
 
