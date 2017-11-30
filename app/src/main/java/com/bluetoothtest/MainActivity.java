@@ -19,8 +19,10 @@ import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -37,6 +39,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
         initView();
 
         // 设置广播信息过滤
@@ -44,14 +47,11 @@ public class MainActivity extends AppCompatActivity {
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothDevice.ACTION_FOUND);//每搜索到一个设备就会发送一个该广播
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);//当全部搜索完后发送该广播
+        filter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
         filter.setPriority(Integer.MAX_VALUE);//设置优先级
         registerReceiver(mReceiver, filter);// 注册蓝牙搜索广播接收者，接收并处理搜索结果
 
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-
-        if (mBluetoothAdapter == null) {
-            Toast.makeText(this, "当前设备不支持蓝牙", Toast.LENGTH_SHORT).show();
-        } else {
+        if (getLocalBluetooth()) { //当前设备是否支持蓝牙
             if (!mBluetoothAdapter.isEnabled()) {
                 //动态开启蓝牙功能
 //                Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
@@ -60,17 +60,9 @@ public class MainActivity extends AppCompatActivity {
                 requestBluetoothPermission();
             } else {
                 //搜索蓝牙设备列表
-
-                //打印当前搜索到的蓝牙设备列表
-                Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-                // If there are paired devices
-                if (pairedDevices.size() > 0) {
-                    // Loop through paired devices
-                    for (BluetoothDevice device : pairedDevices) {
-                        // Add the name and address to an array adapter to show in a ListView
-                        Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
-                    }
-                }
+                inquireBlueEquipment();
+                //打印与当前设备配对的蓝牙设备列表
+                pairedDevicesPrintln();
             }
         }
 
@@ -78,7 +70,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private BluetoothDevice mDevice;
-    private final UUID MY_UUID = UUID.fromString("abcd1234-ab12-ab12-ab12-abcdef123456");
+    static final String SPP_UUID = "00001101-0000-1000-8000-00805F9B34FB";
     private BluetoothSocket mBluetoothSocket;
     private OutputStream mOutputStream;
 
@@ -87,56 +79,49 @@ public class MainActivity extends AppCompatActivity {
             mListItem.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                 @Override
                 public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-//                    Map<String, String> s = (Map<String, String>) parent.getItemAtPosition(position);
-//                    String address = s.get("address");//把地址解析出来
-//                    try {
-//                        //主动连接蓝牙服务端
-//                        if (mBluetoothAdapter.isDiscovering()) {
-//                            mBluetoothAdapter.cancelDiscovery();
-//                        }
-//
-//                        if (mDevice == null) {
-//                            mDevice = mBluetoothAdapter.getRemoteDevice(address);
-//                        }
-//
-//                        if (mBluetoothSocket == null) {
-//                            //创建客户端蓝牙Socket
-//                            try {
-//                                mBluetoothSocket = mDevice.createRfcommSocketToServiceRecord(MY_UUID);
-//                                if (mBluetoothSocket != null) {
-//                                    //开始连接蓝牙，如果没有配对则弹出对话框提示我们进行配对
-//                                    mBluetoothSocket.connect();
-//                                    if (mBluetoothSocket.isConnected()) {
-//                                        //获得输出流（客户端指向服务端输出文本）
-//                                        mOutputStream = mBluetoothSocket.getOutputStream();
-//                                    }
-//                                }
-//                            } catch (IOException e) {
-//                                e.printStackTrace();
-//                            }
-//                        }
-//                        mOutputStream.write("信息来啦".getBytes("UTF-8"));
-//                    } catch (Exception e) {
-//                        e.printStackTrace();
-//                    }
-                    //蓝牙配对
-                    if (mReceiver != null && mReceiver.getSimpleAdapter() != null) {
-                        BluetoothDevice device = (BluetoothDevice) mReceiver.getSimpleAdapter().getItem(position);
-                        //是否配对
-                        if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
-//                            connect(device);
-                        }else{
-                            try {
-                                Method boned=device.getClass().getMethod("createBond");
-                                boolean isok= (boolean) boned.invoke(device);
-                                if(isok) {
-//                                    connect(device);
+                    Map<String, String> s = (Map<String, String>) parent.getItemAtPosition(position);
+                    String address = s.get("address");//把地址解析出来
+                    Toast.makeText(MainActivity.this, address, Toast.LENGTH_SHORT).show();
+                    try {
+                        //主动连接蓝牙服务端
+                        if (mBluetoothAdapter.isDiscovering()) {
+                            mBluetoothAdapter.cancelDiscovery();
+                        }
+
+                        if (mDevice == null) {
+                            mDevice = mBluetoothAdapter.getRemoteDevice(address);
+                        }
+
+                        boolean returnValue = false;
+                        if (mDevice.getBondState() == BluetoothDevice.BOND_NONE) {
+                            //利用反射方法调用BluetoothDevice.createBond(BluetoothDevice remoteDevice);
+                            Method createBondMethod = BluetoothDevice.class
+                                    .getMethod("createBond");
+                            createBondMethod.invoke(mDevice);
+                        } else if (mDevice.getBondState() == BluetoothDevice.BOND_BONDED) {
+
+                            if (mBluetoothSocket == null) {
+                                //创建客户端蓝牙Socket
+                                try {
+                                    mBluetoothSocket = mDevice.createRfcommSocketToServiceRecord(UUID.fromString(SPP_UUID));
+                                    if (mBluetoothSocket != null) {
+                                        //开始连接蓝牙，如果没有配对则弹出对话框提示我们进行配对
+                                        mBluetoothSocket.connect();
+                                        if (mBluetoothSocket.isConnected()) {
+                                            //获得输出流（客户端指向服务端输出文本）
+                                            mOutputStream = mBluetoothSocket.getOutputStream();
+                                        }
+                                    }
+                                } catch (IOException e) {
+                                    e.printStackTrace();
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
                             }
                         }
+                        mOutputStream.write("信息来啦".getBytes("UTF-8"));
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
+
                 }
             });
         }
@@ -158,16 +143,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
 
                 mBluetoothAdapter.enable(); //开启
-                mBluetoothAdapter.cancelDiscovery();
-                // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
-                while (!mBluetoothAdapter.startDiscovery()) {
-                    Log.e(TAG, "尝试失败");
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
-                }
+                inquireBlueEquipment();
             }
         } else {
             Toast.makeText(this, "当前设备不支持蓝牙", Toast.LENGTH_SHORT).show();
@@ -180,6 +156,7 @@ public class MainActivity extends AppCompatActivity {
             //检测当前app是否拥有某个权限
             int checkCallPhonePermission = ContextCompat.checkSelfPermission(this,
                     Manifest.permission.ACCESS_COARSE_LOCATION);
+
             //判断这个权限是否已经授权过
             if (checkCallPhonePermission != PackageManager.PERMISSION_GRANTED) {
                 //判断是否需要 向用户解释，为什么要申请该权限
@@ -191,57 +168,77 @@ public class MainActivity extends AppCompatActivity {
                         {Manifest.permission.ACCESS_COARSE_LOCATION}, REQUEST_BLUETOOTH_PERMISSION);
                 return;
             } else {
-                mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-                if (mBluetoothAdapter.isEnabled()) {
-                    Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-                    // If there are paired devices
-                    if (pairedDevices.size() > 0) {
-                        // Loop through paired devices
-                        for (BluetoothDevice device : pairedDevices) {
-                            // Add the name and address to an array adapter to show in a ListView
-                            Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
-                        }
-                    }
-                } else {
-                    mBluetoothAdapter.enable(); //开启
-                    mBluetoothAdapter.cancelDiscovery();
-                    // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
-                    while (!mBluetoothAdapter.startDiscovery()) {
-                        Log.e(TAG, "尝试失败");
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
+                //当前程序获取到开启蓝牙权限
+                if (getLocalBluetooth()) {
+                    //判断蓝牙是否开启
+                    if (mBluetoothAdapter.isEnabled()) {
+                        pairedDevicesPrintln();
+                        inquireBlueEquipment();
+                    } else {
+                        mBluetoothAdapter.enable(); //开启
+                        pairedDevicesPrintln();
+                        inquireBlueEquipment();
                     }
                 }
             }
         } else {
-            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-            mBluetoothAdapter.enable(); //开启
-            if (mBluetoothAdapter.isEnabled()) {
-                Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-                // If there are paired devices
-                if (pairedDevices.size() > 0) {
-                    // Loop through paired devices
-                    for (BluetoothDevice device : pairedDevices) {
-                        // Add the name and address to an array adapter to show in a ListView
-                        Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
-                    }
-                }
-            } else {
-                mBluetoothAdapter.enable(); //开启
-                mBluetoothAdapter.cancelDiscovery();
-                // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
-                while (!mBluetoothAdapter.startDiscovery()) {
-                    Log.e(TAG, "尝试失败");
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+            if (getLocalBluetooth()) {
+                //判断蓝牙是否开启
+                if (mBluetoothAdapter.isEnabled()) {
+                    pairedDevicesPrintln();
+                    inquireBlueEquipment();
+                } else {
+                    mBluetoothAdapter.enable(); //开启
+                    pairedDevicesPrintln();
+                    inquireBlueEquipment();
                 }
             }
+        }
+    }
+
+    /**
+     * 寻找蓝牙设备
+     */
+    private void inquireBlueEquipment() {
+        mBluetoothAdapter.cancelDiscovery();
+        // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
+        while (!mBluetoothAdapter.startDiscovery()) {
+            Log.e(TAG, "尝试失败");
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * 输入当前蓝牙已经配对的对象
+     */
+    private void pairedDevicesPrintln() {
+        Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
+        // If there are paired devices
+        if (pairedDevices.size() > 0) {
+            // Loop through paired devices
+            for (BluetoothDevice device : pairedDevices) {
+                // Add the name and address to an array adapter to show in a ListView
+                Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
+            }
+        }
+    }
+
+    /**
+     * 获取蓝牙对象
+     *
+     * @return
+     */
+    private boolean getLocalBluetooth() {
+        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (mBluetoothAdapter == null) {
+            Toast.makeText(this, "当前设备不支持蓝牙", Toast.LENGTH_SHORT).show();
+            return false;
+        } else {
+            return true;
         }
     }
 
@@ -249,29 +246,15 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         switch (requestCode) {
             case REQUEST_BLUETOOTH_PERMISSION:
-                mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-                mBluetoothAdapter.enable(); //开启
-                if (mBluetoothAdapter.isEnabled()) {
-                    Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-                    // If there are paired devices
-                    if (pairedDevices.size() > 0) {
-                        // Loop through paired devices
-                        for (BluetoothDevice device : pairedDevices) {
-                            // Add the name and address to an array adapter to show in a ListView
-                            Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
-                        }
-                    }
-                } else {
-                    mBluetoothAdapter.enable(); //开启
-                    mBluetoothAdapter.cancelDiscovery();
-                    // 寻找蓝牙设备，android会将查找到的设备以广播形式发出去
-                    while (!mBluetoothAdapter.startDiscovery()) {
-                        Log.e(TAG, "尝试失败");
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
+                if (getLocalBluetooth()) {
+                    //判断蓝牙是否开启
+                    if (mBluetoothAdapter.isEnabled()) {
+                        pairedDevicesPrintln();
+                        inquireBlueEquipment();
+                    } else {
+                        mBluetoothAdapter.enable(); //开启
+                        pairedDevicesPrintln();
+                        inquireBlueEquipment();
                     }
                 }
                 break;
@@ -281,15 +264,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == RESULT_OK && requestCode == REQUEST_ENABLE_BT) {
-            Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-            // If there are paired devices
-            if (pairedDevices.size() > 0) {
-                // Loop through paired devices
-                for (BluetoothDevice device : pairedDevices) {
-                    // Add the name and address to an array adapter to show in a ListView
-                    Log.i(TAG, "onCreate: " + device.getName() + "  " + device.getAddress());
-                }
-            }
+            pairedDevicesPrintln();
         }
     }
 
